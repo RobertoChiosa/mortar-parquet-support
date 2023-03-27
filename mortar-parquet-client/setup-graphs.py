@@ -1,8 +1,8 @@
 import argparse
-from pathlib import Path
 import glob
-import rdflib
 import os
+
+import rdflib
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -11,13 +11,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     store = rdflib.Dataset(store="OxSled")
-    store.default_union = True # queries default to the union of all graphs
+    store.default_union = True  # queries default to the union of all graphs
     store.open(args.db_dir)
-    for ttlfile in glob.glob(str(Path(args.graph_dir) / "*.ttl")):
-        graph_name = os.path.splitext(os.path.basename(ttlfile))[0]
+    ttl_files = glob.glob(os.path.join(args.graph_dir, "*.ttl"))
+    for ttl_file in ttl_files:
+        graph_name = os.path.splitext(os.path.basename(ttl_file))[0]
         graph_name = f"urn:{graph_name}#"
         graph = store.graph(graph_name)
-        print(f"Loading {ttlfile} => ", end='', flush=True)
-        graph.parse(ttlfile, format="ttl")
+        print(f"Loading {ttl_file} => ", end='', flush=True)
+        graph.parse(ttl_file, format="ttl")
         graph.parse("https://github.com/BrickSchema/Brick/releases/download/nightly/Brick.ttl", format="ttl")
         print(f"Done as {graph_name}")

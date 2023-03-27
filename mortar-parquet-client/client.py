@@ -1,14 +1,14 @@
-import os
-import pandas as pd
 import functools
+import os
+
+import pandas as pd
 import pyarrow as pa
-from pathlib import Path
 import pyarrow.dataset as ds
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
-from pyarrow import fs
 import rdflib
-import glob
+from pyarrow import fs
+from rdflib import URIRef
+
 
 # TODO: provide method for id -> data
 class Client:
@@ -20,15 +20,14 @@ class Client:
             for prefix, namespace in self.store.namespaces():
                 namespace = URIRef(namespace)
                 yield prefix, namespace
-        rdflib.namespace.NamespaceManager.namespaces = namespaces
 
+        rdflib.namespace.NamespaceManager.namespaces = namespaces
 
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
         self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
         self.store = rdflib.Dataset(store="OxSled")
-        self.store.default_union = True # queries default to the union of all graphs
+        self.store.default_union = True  # queries default to the union of all graphs
         self.store.open(db_dir)
-
 
     def _table_exists(self, table):
         try:
@@ -67,7 +66,8 @@ class Client:
         start = pd.to_datetime("2000-01-01T00:00:00Z" if not start else start)
         end = pd.to_datetime("2100-01-01T00:00:00Z" if not end else end)
         uuids = list(set([str(item) for row in res.values for item in row]))
-        f = (ds.field('uuid').isin(uuids)) & (ds.field("time") <= pa.scalar(end)) & (ds.field("time") >= pa.scalar(start))
+        f = (ds.field('uuid').isin(uuids)) & (ds.field("time") <= pa.scalar(end)) & (
+                ds.field("time") >= pa.scalar(start))
         for batch in self.ds.to_batches(filter=f):
             yield batch
 
@@ -108,9 +108,10 @@ class Client:
             return dfs[0]
         return functools.reduce(lambda x, y: pd.concat([x, y], axis=0), dfs)
 
+
 if __name__ == '__main__':
     # currently offline.. hopefully back up soon
-    #c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
+    # c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
     c = Client("models.db", "mortar-data/data", region="us-east-2")
 
     all_points = """

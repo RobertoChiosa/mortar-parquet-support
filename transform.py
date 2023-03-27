@@ -1,9 +1,11 @@
-import pyarrow.parquet as pq
-import pyarrow as pa
-import pandas as pd
-import uuid
 import os
+import uuid
 from pathlib import Path
+
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 
 def transform(collection, csv_file_name, destination, time_col='datetime'):
     destination = Path(destination)
@@ -33,16 +35,21 @@ def transform(collection, csv_file_name, destination, time_col='datetime'):
     df['label'] = stream_name
     df['uri'] = f"urn:{collection}/{stream_name}"
     df['collection'] = collection
-    df = df[['uuid','value','collection','label','uri']]
+    df = df[['uuid', 'value', 'collection', 'label', 'uri']]
 
     table = pa.Table.from_pandas(df)
-    pq.write_to_dataset(table, destination, partition_cols=['collection', 'uuid'], version='2.0', coerce_timestamps='us')
+    pq.write_to_dataset(table,
+                        destination,
+                        partition_cols=['collection', 'uuid'],
+                        version='2.0',
+                        coerce_timestamps='us')
 
     return table
 
 
 if __name__ == '__main__':
     import sys
+
     if len(sys.argv) < 4:
         print("python transform.py collection csv_file destination time_col")
         sys.exit(1)
