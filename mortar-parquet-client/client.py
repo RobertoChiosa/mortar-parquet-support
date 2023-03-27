@@ -14,7 +14,7 @@ from rdflib import URIRef
 class Client:
     def __init__(self, db_dir, bucket, s3_endpoint=None, region=None):
         # monkey-patch RDFlib to deal with some issues w.r.t. oxrdflib
-        def namespaces(self):
+        def namespaces():
             if not self.store.namespaces():
                 return []
             for prefix, namespace in self.store.namespaces():
@@ -22,7 +22,6 @@ class Client:
                 yield prefix, namespace
 
         rdflib.namespace.NamespaceManager.namespaces = namespaces
-
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
         self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
         self.store = rdflib.Dataset(store="OxSled")
@@ -110,9 +109,9 @@ class Client:
 
 
 if __name__ == '__main__':
-    # currently offline.. hopefully back up soon
+    # currently offline hopefully back up soon
     # c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
-    c = Client("models.db", "mortar-data/data", region="us-east-2")
+    client = Client(db_dir="models.db", bucket="mortar-data/data", region="us-east-2")
 
     all_points = """
         PREFIX brick: <https://brickschema.org/schema/Brick#>
@@ -124,8 +123,8 @@ if __name__ == '__main__':
             ?point brick:timeseries [ brick:hasTimeseriesId ?id ] .
         }
     """
-    df = c.sparql(all_points, sites=["bldg1", "bldg2"])
-    df.to_csv("all_points.csv")
+    df_0 = client.sparql(all_points, sites=["bldg1", "bldg2"])
+    df_0.to_csv("all_points.csv")
 
     query1 = """
         PREFIX brick: <https://brickschema.org/schema/Brick#>
@@ -139,15 +138,15 @@ if __name__ == '__main__':
         ?vav a brick:VAV .
         ?vav brick:hasPoint ?sen_point, ?sp_point .
     }"""
-    df = c.sparql(query1, sites=["bldg1", "bldg2"])
-    df.to_csv("query1_sparql.csv")
-    print(df.head())
+    df_1 = client.sparql(query1, sites=["bldg1", "bldg2"])
+    df_1.to_csv("query1_sparql.csv")
+    print(df_1.head())
 
-    df = c.data_sparql(query1, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
-    print(df.head())
+    df_2 = client.data_sparql(query1, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
+    print(df_2.head())
 
-    res = c.data_sparql_to_csv(query1, "query1.csv", sites=["bldg1"])
-    print(res)
+    results = client.data_sparql_to_csv(query1, "query1.csv", sites=["bldg1"])
+    print(results)
 
 """
 Notes:
