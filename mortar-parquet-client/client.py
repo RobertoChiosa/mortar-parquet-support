@@ -14,7 +14,9 @@ from rdflib import URIRef
 class Client:
     def __init__(self, db_dir, bucket, s3_endpoint=None, region=None):
         # monkey-patch RDFlib to deal with some issues w.r.t. oxrdflib
-        def namespaces():
+        self.data_cache = None
+
+        def namespaces(self):
             if not self.store.namespaces():
                 return []
             for prefix, namespace in self.store.namespaces():
@@ -22,6 +24,7 @@ class Client:
                 yield prefix, namespace
 
         rdflib.namespace.NamespaceManager.namespaces = namespaces
+
         self.s3 = fs.S3FileSystem(endpoint_override=s3_endpoint, region=region)
         self.ds = ds.parquet_dataset(f'{bucket}/_metadata', partitioning='hive', filesystem=self.s3)
         self.store = rdflib.Dataset(store="OxSled")
@@ -60,13 +63,29 @@ class Client:
             return dfs[0]
         return functools.reduce(lambda x, y: pd.concat([x, y], axis=0), dfs)
 
-    def _to_batches(self, sparql, sites=None, start=None, end=None, limit=None):
+    def _to_batches(self, sparql, sites=None, start=None, end=None):
+        """ Extract batches of data from parquet dataset based on a sparql query
+
+        :param sparql: query to run e.g. "SELECT ?uuid WHERE { ?uuid a brick:Temperature_Sensor }"
+        :param sites: name of the sites e.g. [bldg1, bldg2]
+        :param start: start date
+        :param end: end date
+        :return:
+        """
+        # performs sparql query
         res = self.sparql(sparql, sites=sites)
+        # set limits for query
         start = pd.to_datetime("2000-01-01T00:00:00Z" if not start else start)
         end = pd.to_datetime("2100-01-01T00:00:00Z" if not end else end)
+        # add timezone
+        start = start.tz_localize("UTC")
+        end = end.tz_localize("UTC")
+        # list of uuids
         uuids = list(set([str(item) for row in res.values for item in row]))
+        # filter
         f = (ds.field('uuid').isin(uuids)) & (ds.field("time") <= pa.scalar(end)) & (
                 ds.field("time") >= pa.scalar(start))
+        # iterate over batches
         for batch in self.ds.to_batches(filter=f):
             yield batch
 
@@ -91,9 +110,20 @@ class Client:
         self.data_cache.commit()
         return self.data_cache.table(table)
 
-    def data_sparql(self, sparql, sites=None, start=None, end=None, limit=None, in_memory=True):
+    def data_sparql(self, sparql, sites=None, start=None, end=None, limit=None):
+        """ Gets pandas dataframe out from the sparql query
+
+        :param sparql:  query to run e.g. "SELECT ?uuid WHERE { ?uuid a brick:Temperature_Sensor }"
+        :param sites:   name of the sites e.g. [bldg1, bldg2]
+        :param start:  start date
+        :param end:  end date
+        :param limit:  limit number of records
+        :return:
+        """
+        # initialize dataframe list
         dfs = []
         for batch in self._to_batches(sparql, sites=sites, start=start, end=end, limit=limit):
+            # for each batch, convert to pandas dataframe
             df = batch.to_pandas()
             print(f"Downloaded batch of {len(df)} records")
             dfs.append(df)
@@ -113,40 +143,49 @@ if __name__ == '__main__':
     # c = Client("graphs", "data", s3_endpoint="https://parquet.mortardata.org")
     client = Client(db_dir="models.db", bucket="mortar-data/data", region="us-east-2")
 
-    all_points = """
-        PREFIX brick: <https://brickschema.org/schema/Brick#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        SELECT * WHERE {
-            ?point rdf:type/rdfs:subClassOf* brick:Point .
-            ?point rdf:type ?type .
-            ?point brick:timeseries [ brick:hasTimeseriesId ?id ] .
-        }
-    """
-    df_0 = client.sparql(all_points, sites=["bldg1", "bldg2"])
-    df_0.to_csv("all_points.csv")
+    # all_points = """
+    #     PREFIX brick: <https://brickschema.org/schema/Brick#>
+    #     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    #     PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    #     SELECT * WHERE {
+    #         ?point rdf:type/rdfs:subClassOf* brick:Point .
+    #         ?point rdf:type ?type .
+    #         ?point brick:timeseries [ brick:hasTimeseriesId ?id ] .
+    #     }
+    # """
+    # df = c.sparql(all_points, sites=["bldg1", "bldg2"])
+    # df.to_csv("all_points.csv")
+    #
+    # # todo: tis query seems not working
+    # query1 = """
+    #     PREFIX brick: <https://brickschema.org/schema/Brick#>
+    #     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    #     PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    #     SELECT ?vav ?sen ?sp  WHERE {
+    #     ?sen_point rdf:type/rdfs:subClassOf* brick:Temperature_Sensor ;
+    #         brick:timeseries [ brick:hasTimeseriesId ?sen ] .
+    #     ?sp_point rdf:type/rdfs:subClassOf* brick:Temperature_Setpoint ;
+    #         brick:timeseries [ brick:hasTimeseriesId ?sp ] .
+    #     ?vav a brick:VAV .
+    #     ?vav brick:hasPoint ?sen_point, ?sp_point .
+    # }"""
+    # df = c.sparql(query1, sites=["bldg1", "bldg2"])
+    # df.to_csv("query1_sparql.csv")
+    # print(df.head())
 
-    query1 = """
-        PREFIX brick: <https://brickschema.org/schema/Brick#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        SELECT ?vav ?sen ?sp  WHERE {
-        ?sen_point rdf:type/rdfs:subClassOf* brick:Temperature_Sensor ;
-            brick:timeseries [ brick:hasTimeseriesId ?sen ] .
-        ?sp_point rdf:type/rdfs:subClassOf* brick:Temperature_Setpoint ;
-            brick:timeseries [ brick:hasTimeseriesId ?sp ] .
-        ?vav a brick:VAV .
-        ?vav brick:hasPoint ?sen_point, ?sp_point .
-    }"""
-    df_1 = client.sparql(query1, sites=["bldg1", "bldg2"])
-    df_1.to_csv("query1_sparql.csv")
+    query_simple = """
+                  SELECT * WHERE {
+             ?point rdf:type/rdfs:subClassOf* brick:Point .
+             ?point rdf:type ?type .
+             ?point brick:timeseries [ brick:hasTimeseriesId ?id ] .
+         }
+        """
+
+    df_1 = client.data_sparql(query_simple, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
     print(df_1.head())
 
-    df_2 = client.data_sparql(query1, sites=["bldg1", "bldg2"], start='2016-01-01', end='2016-02-01', limit=1e6)
-    print(df_2.head())
-
-    results = client.data_sparql_to_csv(query1, "query1.csv", sites=["bldg1"])
-    print(results)
+    # res = c.data_sparql_to_csv(query1, "query1.csv", sites=["bldg1"])
+    # print(res)
 
 """
 Notes:
