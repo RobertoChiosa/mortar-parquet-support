@@ -63,7 +63,7 @@ class Client:
             return dfs[0]
         return functools.reduce(lambda x, y: pd.concat([x, y], axis=0), dfs)
 
-    def _to_batches(self, sparql, sites=None, start=None, end=None):
+    def _to_batches(self, sparql, sites=None, start=None, end=None, limit=None):
         """ Extract batches of data from parquet dataset based on a sparql query
 
         :param sparql: query to run e.g. "SELECT ?uuid WHERE { ?uuid a brick:Temperature_Sensor }"
