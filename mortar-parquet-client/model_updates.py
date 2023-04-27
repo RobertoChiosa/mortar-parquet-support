@@ -684,7 +684,7 @@ def run_updates():
     query_list = get_query_list()
     building_specific_query_dict = get_building_specific_query_dict()
 
-    for file in os.listdir('graphs'):
+    for file in os.listdir(os.path.join(DIR,'graphs')):
         try:
             path = os.path.join(DIR, 'graphs', file)
             name = file.split('.')[0]
@@ -712,7 +712,7 @@ def run_updates():
             valid, final_report = bv.validate()
 
             if not valid:
-                raise ValueError('Not Validated')
+                raise ValueError('Not valid after area correction')
             
             bv.save_clean_graph(os.path.join(DIR, 'graphs_updated', file))
             
