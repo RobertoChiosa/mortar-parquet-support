@@ -1,6 +1,5 @@
 # %%
 from brickschema import Graph
-from rdflib import Namespace
 import zipfile
 from io import BytesIO
 from urllib.request import urlopen 
@@ -15,12 +14,11 @@ DIR = os.path.dirname(os.path.realpath(__file__))
 
 class UpdateInterface:
 
-    def __init__(self, graph_path: str, name: str):
+    def __init__(self, name: str, data_graph: Graph, ontology_graph: Graph):
         self.name = name
-        self.graph_path = graph_path
-        self.data_graph = Graph().parse(self.graph_path)
-        
-        self.ontology_graph = get_ontology_graph()
+
+        self.data_graph = data_graph
+        self.ontology_graph = ontology_graph
 
         self.full_graph = self.data_graph + self.ontology_graph
     
@@ -99,22 +97,6 @@ def format_area_query(report_graph):
     return Template(area_query_format).substitute(old=old, new=new)
 
 def get_query_list():
-
-    bldg43_add_chiller_fix = """
-    PREFIX brick: <https://brickschema.org/schema/Brick#>
-    PREFIX g36: <http://data.ashrae.org/standard223/1.0/extension/g36#>
-    PREFIX s223: <http://data.ashrae.org/standard223#>
-    PREFIX unit: <http://qudt.org/vocab/unit/>
-    PREFIX quantitykind: <http://qudt.org/vocab/quantitykind/>
-    PREFIX qudt: <http://qudt.org/schema/qudt/>
-    PREFIX sh: <http://www.w3.org/ns/shacl#>
-    PREFIX owl: <http://www.w3.org/2002/07/owl#>
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX bldg: <http://buildsys.org/ontologies/bldg43>
-
-    INSERT DATA {<http://buildsys.org/ontologies/bldg43#chiller> a brick:Chiller }
-    """
 
     lev_p_sens_fix = """
     PREFIX brick: <https://brickschema.org/schema/Brick#>
@@ -325,34 +307,6 @@ def get_query_list():
     ?this a brick:Min_Chilled_Water_Supply_Temperature_Setpoint
     }
     """
-
-
-    # ASSUMING EVERYTHING WITH RM, WITH NO DECLARED TYPE, IS A ZONE
-    # FOR BLDG6 SPECIFICALLY
-    bldg6_rm_fix = """
-    PREFIX brick: <https://brickschema.org/schema/Brick#>
-    PREFIX g36: <http://data.ashrae.org/standard223/1.0/extension/g36#>
-    PREFIX s223: <http://data.ashrae.org/standard223#>
-    PREFIX unit: <http://qudt.org/vocab/unit/>
-    PREFIX quantitykind: <http://qudt.org/vocab/quantitykind/>
-    PREFIX qudt: <http://qudt.org/schema/qudt/>
-    PREFIX sh: <http://www.w3.org/ns/shacl#>
-    PREFIX owl: <http://www.w3.org/2002/07/owl#>
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX bldg: <http://buildsys.org/ontologies/bldg1>
-
-    DELETE {}
-    INSERT {?this a brick:HVAC_Zone }
-    WHERE {
-        ?this brick:hasPoint ?that .
-        FILTER REGEX (str(?this), "VAVRM") .
-        FILTER NOT EXISTS {
-            ?this a ?y .
-    }
-    }
-    """
-
 
     chwsp_fix = """
     PREFIX brick: <https://brickschema.org/schema/Brick#>
@@ -672,33 +626,85 @@ def get_query_list():
     
     return ordered_query_list
 
+def get_building_specific_query_dict():
+    queries = {}
 
+    # ASSUMING EVERYTHING WITH RM, WITH NO DECLARED TYPE, IS A ZONE
+    # FOR BLDG6 SPECIFICALLY
+    bldg6_rm_fix = """
+    PREFIX brick: <https://brickschema.org/schema/Brick#>
+    PREFIX g36: <http://data.ashrae.org/standard223/1.0/extension/g36#>
+    PREFIX s223: <http://data.ashrae.org/standard223#>
+    PREFIX unit: <http://qudt.org/vocab/unit/>
+    PREFIX quantitykind: <http://qudt.org/vocab/quantitykind/>
+    PREFIX qudt: <http://qudt.org/schema/qudt/>
+    PREFIX sh: <http://www.w3.org/ns/shacl#>
+    PREFIX owl: <http://www.w3.org/2002/07/owl#>
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX bldg: <http://buildsys.org/ontologies/bldg1>
+
+    DELETE {}
+    INSERT {?this a brick:HVAC_Zone }
+    WHERE {
+        ?this brick:hasPoint ?that .
+        FILTER REGEX (str(?this), "VAVRM") .
+        FILTER NOT EXISTS {
+            ?this a ?y .
+    }
+    }
+    """
+
+    bldg43_add_chiller_fix = """
+    PREFIX brick: <https://brickschema.org/schema/Brick#>
+    PREFIX g36: <http://data.ashrae.org/standard223/1.0/extension/g36#>
+    PREFIX s223: <http://data.ashrae.org/standard223#>
+    PREFIX unit: <http://qudt.org/vocab/unit/>
+    PREFIX quantitykind: <http://qudt.org/vocab/quantitykind/>
+    PREFIX qudt: <http://qudt.org/schema/qudt/>
+    PREFIX sh: <http://www.w3.org/ns/shacl#>
+    PREFIX owl: <http://www.w3.org/2002/07/owl#>
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX bldg: <http://buildsys.org/ontologies/bldg43>
+
+    INSERT DATA {<http://buildsys.org/ontologies/bldg43#chiller> a brick:Chiller }
+    """
+
+    queries['bldg43'] = [bldg43_add_chiller_fix]
+    queries['bldg6'] = [bldg6_rm_fix]
+    return queries
 
 def run_updates():
     """
     uses ordered query list to update all graphs. Some updates apply only to specific files
     """
-    query_list = get_query_list()
 
+    ontology_graph = get_ontology_graph()
+    query_list = get_query_list()
+    building_specific_query_dict = get_building_specific_query_dict()
 
     for file in os.listdir('graphs'):
         try:
             path = os.path.join(DIR, 'graphs', file)
             name = file.split('.')[0]
             print(name)
-            bv = UpdateInterface(graph_path=path, name = name)
+            data_graph = Graph().parse(path)
+            bv = UpdateInterface(ontology_graph=ontology_graph, data_graph=data_graph, name = name)
 
             for q in query_list:
                 bv.update_graph(q)
-            if file == 'bldg6.ttl':
-                bv.update_graph(bldg6_rm_fix)
-            if file == 'bldg43.ttl':
-                bv.update_graph(bldg43_add_chiller_fix)
+            
+            specific_query_list = building_specific_query_dict.get(name)
+            
+            if specific_query_list:
+                for q in specific_query_list:
+                    bv.update_graph(q)
 
             valid, report_graph = bv.validate()
             
             if valid:
-                bv.save_clean_graph(os.path.join(DIR, 'graphs_clean', file))
+                bv.save_clean_graph(os.path.join(DIR, 'graphs_updated', file))
                 continue
 
             area_query = format_area_query(report_graph)
@@ -708,7 +714,7 @@ def run_updates():
             if not valid:
                 raise ValueError('Not Validated')
             
-            bv.save_clean_graph(os.path.join(DIR, 'graphs_clean', file))
+            bv.save_clean_graph(os.path.join(DIR, 'graphs_updated', file))
             
         except ValueError:
             print(f'{path} not a valid graph')
